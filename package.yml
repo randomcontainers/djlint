@@ -1,0 +1,188 @@
+name: djlint
+title: djLint
+summary: Lints and reformats HTML templates written for Django, Jinja, Nunjucks, Twig, Handlebars, Liquid, Go templates and plain HTML.
+homepage: https://djlint.com/
+# djLint, the Python packages installed with it, pip and the packages it
+# vendors. djLint's wheels are compiled with mypyc, whose runtime is under MIT,
+# PSF-2.0 and BSD-2-Clause (LICENSE-THIRD-PARTY in djLint's license files).
+# djLint's reformat.py says much of its code was borrowed from HTMLBeautify
+# (CC BY-SA 3.0). Only a few short lines of HTMLBeautify are left in djLint,
+# such as "for item in rawcode_flat_list:", so the label follows upstream's
+# GPL-3.0-or-later and does not add CC-BY-SA-3.0.
+# regex is Apache-2.0 with code from CPython under the CNRI Python license.
+# Its wheel names that license without including the text; the CNRI agreement
+# that CPython ships, the one for Python 1.6.1, is in LICENSE-THIRD-PARTY.
+# libyaml is linked statically into PyYAML, and the jsbeautifier and
+# cssbeautifier wheels have no license file; those texts are in licenses/.
+license: GPL-3.0-or-later AND MIT AND MPL-2.0 AND Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause AND ISC AND PSF-2.0 AND CNRI-Python
+upstream:
+  source: pypi
+  project: djlint
+  tag-pattern: '^(\d+\.\d+\.\d+)$'
+  version-template: '{1}'
+  versioning: semver
+  version: 1.47.0
+  cooldown: 24h
+  publisher: djlint/djLint
+image:
+  entrypoint: [djlint]
+  cmd: [--help]
+  env: {PYTHONUNBUFFERED: "1"}
+test:
+  - |
+    djlint --version > version.txt
+    if [ "$(cat version.txt)" != "djlint, version $VERSION" ]; then
+      echo "expected djlint, version $VERSION, got: $(cat version.txt)" >&2; exit 1
+    fi
+    # pip must install the wheel compiled with mypyc, not the pure Python one.
+    # Upstream's own tests run only the Python source.
+    for module in djlint djlint.lint djlint.settings djlint.formatter.indent; do
+      /usr/local/lib/djlint/bin/python -I -c "import $module as m; print(m.__file__)" > module.txt
+      case "$(cat module.txt)" in
+        */djlint/*.so) ;;
+        *) echo "$module is loaded from $(cat module.txt), not from a compiled module" >&2; exit 1 ;;
+      esac
+    done
+    # The build adds these from licenses/, because the wheels leave them out.
+    licenses=/usr/local/share/randomcontainers/djlint/licenses
+    for file in jsbeautifier/LICENSE cssbeautifier/LICENSE PyYAML/bundled/libyaml/License djlint/LICENSE-THIRD-PARTY; do
+      test -s "$licenses/$file" || { echo "$licenses/$file is missing or empty" >&2; exit 1; }
+    done
+  - |
+    # Inputs and findings come from djLint's own test suite.
+    mkdir lint
+    cd lint || exit 1
+    printf '%s' '<div style="asdf"></div>' > style.html
+    rc=0; djlint style.html > style.txt || rc=$?
+    if [ "$rc" != 1 ] || ! grep -qxF 'H021 1:0 Inline styles should be avoided. <div style=' style.txt ||
+        ! grep -qxF 'Linted 1 file, found 1 error.' style.txt; then
+      echo "djlint style.html exited with $rc and printed:" >&2; cat style.txt >&2; exit 1
+    fi
+    djlint --warn style.html > warn.txt || { echo "djlint --warn exited with $?" >&2; cat warn.txt >&2; exit 1; }
+    # The T rules check template tags and run only with a template profile.
+    printf '%s\n%s' '{{test }}' '{% test%}<a>' > tags.html
+    rc=0; djlint --profile=django --statistics tags.html > tags.txt || rc=$?
+    grep -E '^[A-Z][0-9]{3} ' tags.txt > found.txt || true
+    printf '%s\n' \
+      'T001 1:0 Variables should be wrapped in a whitespace. {{test }}' \
+      'T001 2:0 Variables should be wrapped in a whitespace. {% test%}' \
+      'H025 2:9 Tag seems to be an orphan. <a>' \
+      'H025 1 Tag seems to be an orphan.' \
+      'T001 2 Variables should be wrapped in a whitespace.' > expected.txt
+    if [ "$rc" != 1 ] || ! cmp -s expected.txt found.txt; then
+      echo "djlint --profile=django --statistics exited with $rc and printed:" >&2; cat tags.txt >&2; exit 1
+    fi
+    # Settings from pyproject.toml (read with tomllib) and from .djlintrc (JSON).
+    mkdir pyproject djlintrc
+    cp tags.html pyproject/
+    cp tags.html djlintrc/
+    printf '%s\n' '[tool.djlint]' 'profile = "django"' 'ignore = "H025"' > pyproject/pyproject.toml
+    printf '%s\n' '{"profile": "django", "ignore": "T001"}' > djlintrc/.djlintrc
+    rc=0; (cd pyproject && djlint tags.html) > pyproject.txt || rc=$?
+    if [ "$rc" != 1 ] || grep -q '^H025 ' pyproject.txt || ! grep -qxF 'Linted 1 file, found 2 errors.' pyproject.txt; then
+      echo "with H025 ignored in pyproject.toml, djlint exited with $rc and printed:" >&2; cat pyproject.txt >&2; exit 1
+    fi
+    rc=0; (cd djlintrc && djlint tags.html) > djlintrc.txt || rc=$?
+    if [ "$rc" != 1 ] || grep -q '^T001 ' djlintrc.txt || ! grep -qxF 'Linted 1 file, found 1 error.' djlintrc.txt; then
+      echo "with T001 ignored in .djlintrc, djlint exited with $rc and printed:" >&2; cat djlintrc.txt >&2; exit 1
+    fi
+  - |
+    # Inputs and expected output come from djLint's own test suite.
+    mkdir format
+    cd format || exit 1
+    printf '%s\n' '<div>{% if x %}' 'text' '{% endif %}</div>' > if.html
+    cp if.html before.html
+    rc=0; djlint --profile=django --check if.html > check.txt || rc=$?
+    if [ "$rc" != 1 ] || ! grep -qxF '+    {% if x %}' check.txt || ! grep -qxF '1 file would be updated.' check.txt; then
+      echo "djlint --check if.html exited with $rc and printed:" >&2; cat check.txt >&2; exit 1
+    fi
+    cmp before.html if.html || { echo "djlint --check changed if.html" >&2; exit 1; }
+    rc=0; djlint --profile=django --reformat if.html > reformat.txt || rc=$?
+    printf '%s\n' '<div>' '    {% if x %}' '        text' '    {% endif %}' '</div>' > expected.html
+    if [ "$rc" != 1 ] || ! grep -qxF '1 file was updated.' reformat.txt || ! cmp -s expected.html if.html; then
+      echo "djlint --reformat if.html exited with $rc and printed:" >&2; cat reformat.txt >&2
+      echo "if.html is now:" >&2; cat if.html >&2; exit 1
+    fi
+    djlint --profile=django --check if.html > recheck.txt || { echo "djlint --check exited with $? after --reformat" >&2; cat recheck.txt >&2; exit 1; }
+    grep -qxF '0 files would be updated.' recheck.txt || { cat recheck.txt >&2; exit 1; }
+    # More than one file is checked in a pool of worker processes.
+    mkdir -p many/a many/b
+    for file in many/a/one.html many/a/two.html many/b/three.html; do
+      printf '%s' '<div><p>nice stuff here</p></div>' > "$file"
+    done
+    rc=0; djlint --check many > many.txt 2> many.err || rc=$?
+    if [ "$rc" != 1 ] || ! grep -qxF '3 files would be updated.' many.txt; then
+      echo "djlint --check many exited with $rc and printed:" >&2; cat many.txt many.err >&2; exit 1
+    fi
+  - |
+    # Inputs and expected output come from djLint's own test suite.
+    mkdir stdin
+    cd stdin || exit 1
+    printf '%s' '<div><p>nice stuff here</p></div>' > p.html
+    printf '%s\n' '<div>' '    <p>nice stuff here</p>' '</div>' > p.expected
+    rc=0; djlint - --check < p.html > p.check || rc=$?
+    if [ "$rc" != 1 ] || ! cmp -s p.expected p.check; then
+      echo "djlint - --check exited with $rc and printed:" >&2; cat p.check >&2; exit 1
+    fi
+    # --reformat writes the result to standard output and exits with 0.
+    reformat() {
+      name=$1; shift
+      rc=0; djlint - --reformat "$@" < "$name.html" > "$name.out" 2> "$name.err" || rc=$?
+      if [ "$rc" != 0 ] || ! cmp -s "$name.expected" "$name.out"; then
+        echo "djlint - --reformat $* < $name.html exited with $rc, expected:" >&2; cat "$name.expected" >&2
+        echo "got:" >&2; cat "$name.out" "$name.err" >&2; exit 1
+      fi
+    }
+    reformat p
+    # cssbeautifier and jsbeautifier format <style> and <script>, and json5
+    # reads the mapping in a set tag and writes it back with double quotes.
+    printf '%s' '<div><style>body{color:red}</style></div>' > css.html
+    printf '%s\n' '<div>' '    <style>' '        body {' '            color: red' '        }' '    </style>' '</div>' > css.expected
+    reformat css --format-css
+    printf '%s' '<div><script>console.log("hi");</script></div>' > js.html
+    printf '%s\n' '<div>' '    <script>' '        console.log("hi");' '    </script>' '</div>' > js.expected
+    reformat js --format-js
+    printf '%s\n' "{% set classes =  {" "'sPaging': 'd-flex justify-content-center '," \
+      "'sPageButton': 'btn btn-outline-primary ms-1 me-1'," "'sPageButtonActive': 'active'," '}%}' > set.html
+    printf '%s\n' '{% set classes = {' '    "sPaging": "d-flex justify-content-center ",' \
+      '    "sPageButton": "btn btn-outline-primary ms-1 me-1",' '    "sPageButtonActive": "active"' '} %}' > set.expected
+    reformat set --profile=nunjucks
+  - |
+    mkdir ci
+    cd ci || exit 1
+    printf '%s' '<div style="asdf"></div>' > style.html
+    rc=0; GITHUB_ACTIONS=true djlint style.html > github.txt || rc=$?
+    if [ "$rc" != 1 ] || ! grep -qxF '::warning file=style.html,line=1,col=1::H021 Inline styles should be avoided.' github.txt; then
+      echo "djlint with GITHUB_ACTIONS=true exited with $rc and printed:" >&2; cat github.txt >&2; exit 1
+    fi
+    rc=0; djlint --sarif style.html > style.sarif || rc=$?
+    test "$rc" = 1 || { echo "djlint --sarif exited with $rc" >&2; cat style.sarif >&2; exit 1; }
+    /usr/local/lib/djlint/bin/python -I -c '
+    import json, sys
+    doc = json.load(open(sys.argv[1]))
+    run = doc["runs"][0]
+    got = (doc["version"], run["tool"]["driver"]["version"], [
+        (r["ruleId"], r["level"], r["locations"][0]["physicalLocation"]["artifactLocation"]["uri"])
+        for r in run["results"]])
+    want = ("2.1.0", sys.argv[2], [("H021", "warning", "style.html")])
+    if got != want:
+        sys.exit(f"expected {want}, got {got}")
+    ' style.sarif "$VERSION"
+    # djLint exits with 2 on usage errors, apart from 1 for findings.
+    rc=0; djlint --profile=djangoo style.html > profile.txt 2>&1 || rc=$?
+    if [ "$rc" != 2 ] || ! grep -qF "Invalid profile 'djangoo'" profile.txt; then
+      echo "djlint --profile=djangoo exited with $rc and printed:" >&2; cat profile.txt >&2; exit 1
+    fi
+examples:
+  - title: Lint every .html file in the current directory and below
+    command: docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/randomcontainers/djlint .
+  - title: Lint Django templates with the Django rules
+    command: docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/randomcontainers/djlint --profile=django templates
+  - title: Show which templates would be reformatted, without changing them
+    command: docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/randomcontainers/djlint --check .
+  - title: Reformat the templates in place
+    command: docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/randomcontainers/djlint --reformat .
+  - title: Reformat a template from standard input
+    command: docker run --rm -i ghcr.io/randomcontainers/djlint - --reformat < page.html
+  - title: Write the findings as SARIF for code scanning
+    command: docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/randomcontainers/djlint --sarif . > djlint.sarif
