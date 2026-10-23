@@ -1,0 +1,14 @@
+PyYAML 6.0.3 links a static build of libyaml into its extension module
+yaml._yaml. Its Linux wheels are built by PyYAML's CI workflow, which checks
+out https://github.com/yaml/libyaml at the tag 0.2.5 and configures it with
+--enable-shared=no (packaging/build/libyaml.sh in the PyYAML source
+release). The archive below is libyaml's release of that tag. libyaml is
+licensed under the MIT license; its license file is in the libyaml
+directory.
+
+PyYAML 6.0.3
+  https://files.pythonhosted.org/packages/05/8e/961c0007c59b8dd7729d542c61a4d537767a59645b82a0b521206e1e25c2/pyyaml-6.0.3.tar.gz
+  sha256:d76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f
+libyaml 0.2.5
+  https://github.com/yaml/libyaml/releases/download/0.2.5/yaml-0.2.5.tar.gz
+  sha256:c642ae9b75fee120b2d96c712538bd2cf283228d2337df2cf2988e3c02678ef4

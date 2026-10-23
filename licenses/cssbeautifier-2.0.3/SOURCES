@@ -1,0 +1,8 @@
+cssbeautifier 2.0.3 is built from the python/ directory of the js-beautify
+repository. Its wheel and source release on PyPI leave out the repository's
+license file, the MIT license. LICENSE is that file at the tag below, whose
+python/cssbeautifier/__init__.py and __version__.py match the wheel's.
+
+js-beautify v2.0.3
+  https://github.com/beautifier/js-beautify/tree/v2.0.3
+  commit 20ff725dbe9fe28fbf779c3ef38efdd827cea995
