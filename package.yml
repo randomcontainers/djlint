@@ -21,7 +21,7 @@ upstream:
   tag-pattern: '^(\d+\.\d+\.\d+)$'
   version-template: '{1}'
   versioning: semver
-  version: 1.49.9
+  version: 1.49.10
   cooldown: 24h
   publisher: djlint/djLint
 image:
